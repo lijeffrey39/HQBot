@@ -5,14 +5,9 @@
 	* Attempt to google wiki \"...\" part of question
 	* Rid of common appearances in 3 options
 	* Automate screenshot process
-	* Implement Asynchio for concurrency
-
-	//Script is in working condition at all times
-	//TODO is for improving accuracy
 
 '''
 
-# answering bot for trivia HQ and Cash Show
 import json
 import urllib2
 from bs4 import BeautifulSoup
@@ -25,34 +20,30 @@ import cv2
 import os
 import pyscreenshot as Imagegrab
 import sys
-import wx
 from halo import Halo
 import io
 import multiprocessing
 import time
-
 import os
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "mTurk-Firebase-59683a14dad8.json"
 
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "mTurk-Firebase-59683a14dad8.json"
 
 # Imports the Google Cloud client library
 from google.cloud import vision
-from google.cloud.vision import types
+from google.cloud import language
+from google.cloud.language import enums
+from google.cloud.language import types
+
+from socketIO_client_nexus import SocketIO, LoggingNamespace
+
+def on_bbb_response(*args):
+    print('lol', args)
+
+# Instantiates a client
+clientL = language.LanguageServiceClient()
 
 # Instantiates a client
 client = vision.ImageAnnotatorClient()
-
-
-# for terminal colors 
-class bcolors:
-	HEADER = '\033[95m'
-	OKBLUE = '\033[94m'
-	OKGREEN = '\033[92m'
-	WARNING = '\033[93m'
-	FAIL = '\033[91m'
-	ENDC = '\033[0m'
-	BOLD = '\033[1m'
-	UNDERLINE = '\033[4m'
 
 # sample questions from previous games
 sample_questions = {}
@@ -63,23 +54,15 @@ remove_words = []
 # negative words
 negative_words= []
 
-# GUI interface 
-def gui_interface():
-	app = wx.App()
-	frame = wx.Frame(None, -1, 'win.py')
-	frame.SetDimensions(0,0,640,480)
-	frame.Show()
-	app.MainLoop()
-	return None
-
 # load sample questions
 def load_json():
 	global remove_words, sample_questions, negative_words
 	remove_words = json.loads(open("Data/settings.json").read())["remove_words"]
 	negative_words = json.loads(open("Data/settings.json").read())["negative_words"]
-	sample_questions = json.loads(open("Data/questions.json").read())
+	sample_questions = json.loads(open("Data/question.json").read())
 
-# take screenshot of question 
+
+# take screenshot of question
 def screen_grab(to_save):
 	# 31,228 485,620 co-ords of screenshot// left side of screen
 	im = Imagegrab.grab(bbox=(31,228,485,580))
@@ -98,11 +81,9 @@ def read_screen():
 	ap.add_argument("-p", "--preprocess", type=str, default="thresh", help="type of preprocessing to be done")
 	args = vars(ap.parse_args())
 
-	# load the image 
+	# load the image
 	image = cv2.imread(args["image"])
 	gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-
 
 	if args["preprocess"] == "thresh":
 		gray = cv2.threshold(gray, 0, 255,
@@ -118,7 +99,7 @@ def read_screen():
 	with io.open(filename, 'rb') as image_file:
 		content = image_file.read()
 
-	image = types.Image(content=content)
+	image = vision.types.Image(content=content)
 
 	response = client.document_text_detection(image=image)
 	document = response.full_text_annotation
@@ -146,16 +127,7 @@ def read_screen():
 	text = pytesseract.image_to_string(Image.open(filename))
 	os.remove(filename)
 	# os.remove(screenshot_file)
-	
-	# show the output images
 
-	'''cv2.imshow("Image", image)
-	cv2.imshow("Output", gray)
-	os.remove(screenshot_file)
-	if cv2.waitKey(0):
-		cv2.destroyAllWindows()
-	print(text)
-	'''
 	spinner.succeed()
 	spinner.stop()
 	return text, blocks
@@ -177,20 +149,20 @@ def parse_question():
 	for line in lines :
 		if not flag :
 			question = question+" "+line
-		
+
 		if '?' in line :
 			flag = True
 			continue
-		
+
 		if flag :
 			if line != '' :
 				options.append(line)
-			
+
 	return question, options
+
 
 # simplify question and remove which,what....etc //question is string
 def simplify_ques(question):
-
 	neg = False
 	qwords = question.lower().split()
 	if [i for i in qwords if i in negative_words]:
@@ -203,7 +175,7 @@ def simplify_ques(question):
 	clean_question=""
 
 	#remove ?
-	for ch in temp: 
+	for ch in temp:
 		if ch!="?" or ch!="\"" or ch!="\'":
 			clean_question=clean_question+ch
 
@@ -221,78 +193,57 @@ def get_page(link):
 	except (urllib2.URLError, urllib2.HTTPError, ValueError) as e:
 		return ''
 
-# split the string
-def split_string(source):
-	splitlist = ",!-.;/?@ #"
-	output = []
-	atsplit = True
-	for char in source:
-		if char in splitlist:
-			atsplit = True
-		else:
-			if atsplit:
-				output.append(char)
-				atsplit = False
-			else:
-				output[-1] = output[-1] + char
-	return output
 
 # normalize points // get rid of common appearances // "quote" wiki option + ques
 def normalize():
-	return None	
+	return None
 
 # take screen shot of screen every 2 seconds and check for question
 def check_screen():
 	return None
 
-# wait for certain milli seconds 
+# wait for certain milli seconds
 def wait(msec):
 	return None
 
 # answer by combining two words
 def smart_answer(content, qwords):
-
 	points = 0
 
 	for i in range(len(qwords) - 1):
-		if content.count(qwords[i] + " " + qwords[i + 1]) != 0:
-			points += 200
-
-	for i in range(len(qwords) - 2):
-		if content.count(qwords[i] + " " + qwords[i + 1] + " " + qwords[i + 2]) != 0:
-			points += 500
-
-	for i in range(len(qwords) - 3):
-		if content.count(qwords[i] + " " + qwords[i + 1] + " " + qwords[i + 2] +  " " + qwords[i + 3]) != 0:
-			points += 1000
+		num = content.count(qwords[i] + " " + qwords[i + 1])
+		points += (200 * num)
 
 	return points
 
-def getPoints(link, words):
+
+def getPage(link):
 	content = get_page(link)
 	soup = BeautifulSoup(content,"lxml")
-	page = soup.get_text().lower()
-	page = page[:(len(page) / 2)]
+	texts = soup.findAll(text=True)
+	visible_texts = filter(tag_visible, texts)
+	page = u" ".join(t.strip() for t in visible_texts).lower()
+	return page
 
+
+def getPoints(link, words):
+	page = getPage(link)
 	temp = 0
 
 	for word in words:
-		temp = temp + page.count(word)
+		temp = temp + page.count(word[0])
+		#temp = temp + (page.count(word[0]) * word[1]) #account for salience
 
-	temp += smart_answer(page, words)
+	#temp += smart_answer(page, words)
 	return temp
 
 
 def searchQuestionPoint(page, option):
-
 	oWords = option.lower().split()
-	# temp = 2000 * page.count(option)
 	temp = 0
-	# for o in oWords:
-	# 	temp += page.count(o)
 	temp = page.count(option)
 
-	return (temp * 1000) 
+	return (temp * 1000)
 
 
 def tag_visible(element):
@@ -303,120 +254,59 @@ def tag_visible(element):
     return True
 
 
-
 def optionPoint((o, words, num_pages, question)):
-
 	if (question == False):
-		print("start")
 		options = words[0]
 		searchWiki = google.search(words[1], num_pages) #search question
-		searchWikiSim = google.search(words[2], num_pages) #search simplified question
-		searchWikiAddedSim = google.search(words[2] + " wiki", num_pages)
 
-		page = ""
-		page1 = ""
-		page2 = ""
-
-		if (searchWiki[0].link == searchWikiSim[0].link):
-			print("getPage")
-			content = get_page(searchWiki[0].link)
-			print("loadPage")
-			soup = BeautifulSoup(content,"lxml")
-			texts = soup.findAll(text=True)
-			visible_texts = filter(tag_visible, texts)  
-			page = u" ".join(t.strip() for t in visible_texts).lower()
-
-			print("getPage")
-			content = get_page(searchWikiAddedSim[0].link)
-			print("loadPage")
-			soup = BeautifulSoup(content,"lxml")
-			texts = soup.findAll(text=True)
-			visible_texts = filter(tag_visible, texts)  
-			page2 = u" ".join(t.strip() for t in visible_texts).lower()
-		else:
-			print("getPage")
-			content = get_page(searchWiki[0].link)
-			print("loadPage")
-			soup = BeautifulSoup(content,"lxml")
-			texts = soup.findAll(text=True)
-			visible_texts = filter(tag_visible, texts)  
-			page = u" ".join(t.strip() for t in visible_texts).lower()
-
-			print("getPage")
-			content = get_page(searchWikiSim[0].link)
-			print("loadPage")
-			soup = BeautifulSoup(content,"lxml")
-			texts = soup.findAll(text=True)
-			visible_texts = filter(tag_visible, texts)  
-			page1 = u" ".join(t.strip() for t in visible_texts).lower()
-
-			print("getPage")
-			content = get_page(searchWikiAddedSim[0].link)
-			print("loadPage")
-			soup = BeautifulSoup(content,"lxml")
-			texts = soup.findAll(text=True)
-			visible_texts = filter(tag_visible, texts)  
-			page2 = u" ".join(t.strip() for t in visible_texts).lower()
+		# print("getPage")
+		page = getPage(searchWiki[0].link)
 
 		pointsOptions = [0, 0, 0]
 		for i in range(len(options)):
-			if (searchWiki[0].link == searchWikiSim[0].link):
-				pointsOptions[i] += (2 * searchQuestionPoint(page, options[i]))
-				pointsOptions[i] += searchQuestionPoint(page2, options[i])
-			else:
-				pointsOptions[i] += searchQuestionPoint(page, options[i])
-				pointsOptions[i] += searchQuestionPoint(page1, options[i])
-				pointsOptions[i] += searchQuestionPoint(page2, options[i])
-		print(pointsOptions)
-
-		print("end")
+			pointsOptions[i] += searchQuestionPoint(page, options[i])
+		# print(pointsOptions)
 
 		return pointsOptions
-
 	else:
 		o = o.lower()
-		original = o
 		o += ' wiki'
 
 		# get google search results for option + 'wiki'
 		search_wiki = google.search(o, num_pages)
 
 		temp = 0
-		for i in range(len(search_wiki) / 2):
+		for i in range(len(search_wiki) / 4):
 			temp += getPoints(search_wiki[i].link, words)
-		
+
 		return temp
 
 
 # use google to get wiki page
-def google_wiki(question, sim_ques, options):
+def google_wiki(question, words, options):
 	spinner = Halo(text='Googling and searching Wikipedia', spinner='dots2')
 	spinner.start()
 	num_pages = 1
 	content = ""
-	words = split_string(sim_ques)
 
 	pool = multiprocessing.Pool(processes = 4, maxtasksperchild = 1)
 
 	newOptions = map(lambda o: (o, words, num_pages, True), options)
-	newOptions.append(("", [options, question, sim_ques], num_pages, False))
+	newOptions.append(("", [options, question, ""], num_pages, False))
 	result = pool.map(optionPoint, newOptions)
 
 	numsAdd = result[3]
 
 	result = [result[0] + numsAdd[0], result[1] + numsAdd[1], result[2] + numsAdd[2]]
 
-	print(result)
-	print("beforeClose")
-	pool.close()
+	# print(result)
+	# pool.close()
+	# pool.join()
 
-	print("join")
-	pool.join()
-
-	print("terminate")
+	# print("terminate")
 	pool.terminate()
 
-	print("pool")
+	# print("pool")
 
 	spinner.succeed()
 	spinner.stop()
@@ -424,46 +314,38 @@ def google_wiki(question, sim_ques, options):
 	return result
 
 
-# return points for sample_questions
-def get_points_sample():
-	simq = ""
-	x = 0
-	for key in sample_questions:
-		x = x + 1
-		points = []
-		simq = simplify_ques(key)
-		options = sample_questions[key]
-		simq = simq.lower()
-		points = google_wiki(simq, options)
-		print("\n" + str(x) + ". " + bcolors.UNDERLINE + key + bcolors.ENDC + "\n")
-		for point, option in zip(points, options):
-			# if maxo == option.lower():
-			# 	option=bcolors.OKGREEN+option+bcolors.ENDC
-			print(option + " { points: " + bcolors.BOLD + str(point) + bcolors.ENDC + " }\n")
-
-
-# return points for live game // by screenshot
-def get_points_live():
-	start = time.time()
-
-	question, options = parse_question()
-	# question = "A 1990s written work by the author of ' Eat , Pray , Love ' inspired which of these films ?"
-	# options = [u' Under the Tuscan Sun', u' Legally Blonde', u' Coyote Ugly']
-	options = map(lambda s: s.encode("utf-8").strip().lower(), options)
-
-	print(question + "\n")
-	print(options)
-	print("\n")
+def printResult(question, options):
+	points = []
 
 	simq = ""
 	points = []
 	simq, neg = simplify_ques(question)
 
-	points = google_wiki(question, simq, options)
-	print("\n" + bcolors.UNDERLINE + question + bcolors.ENDC + "\n")
+	options = map(lambda s: s.encode("utf-8").strip().lower(), options)
 
-	if (neg):
-		print("NEGATIVE")
+
+	# Instantiates a plain text document.
+	document = types.Document(
+	content = question,
+	type = enums.Document.Type.PLAIN_TEXT)
+
+	# Detects entities in the document.
+	entities = clientL.analyze_entities(document).entities
+
+	# entity types from enums.Entity.Type
+	entity_type = ('UNKNOWN', 'PERSON', 'LOCATION', 'ORGANIZATION',
+	'EVENT', 'WORK_OF_ART', 'CONSUMER_GOOD', 'OTHER')
+
+	words = []
+	for entity in entities:
+		words.append([entity.name, entity.salience])
+
+	# print(question)
+	# print(options)
+	# print("\n")
+
+	points = google_wiki(question, words, options)
+	print("\n" + question + "\n")
 
 	pointToChoose = 0
 	if (neg):
@@ -471,15 +353,59 @@ def get_points_live():
 	else:
 		pointToChoose = max(points)
 
+	optionI = 0
+	x = 0
 	for point, option in zip(points, options):
-		# if maxo == option.lower():
-		# 	option=bcolors.OKGREEN+option+bcolors.ENDC
-		if (point == pointToChoose):
-			print("vvvvvvvvvvvvvvvvvvvvvv")
-		print(option + " { points: " + bcolors.BOLD + str(point) + bcolors.ENDC + " }")
-		print("\n")
-	end = time.time()
 
+		if (point == pointToChoose):
+			optionI = x
+			print("vvvvvvvvvvvvvvvvvvvvvv")
+		print(option + " { points: " + str(point) + " }")
+		print("\n")
+		x = x + 1
+
+	with SocketIO('localhost', 3000, LoggingNamespace) as socketIO:
+		socketIO.emit('answer', {"option": optionI, "points": points}, on_bbb_response)
+
+		socketIO.wait_for_callbacks(seconds=1)
+
+# return points for sample_questions
+def get_points_sample():
+	start = time.time()
+
+	simq = ""
+	x = 0
+	for question in sample_questions:
+		x = x + 1
+		options = sample_questions[question]
+
+		with SocketIO('localhost', 3000, LoggingNamespace) as socketIO:
+		    socketIO.emit('new question', {'q': question,
+				'c1': options[0], 'c2': options[1], 'c3': options[2]}, on_bbb_response)
+
+		    socketIO.wait_for_callbacks(seconds=1)
+
+
+		start = time.time()
+		printResult(question, options)
+		end = time.time()
+		print(end - start)
+
+
+# return points for live game // by screenshot
+def get_points_live():
+	question, options = parse_question()
+
+
+	with SocketIO('localhost', 3000, LoggingNamespace) as socketIO:
+		socketIO.emit('new question', {'q': question,
+			'c1': options[0], 'c2': options[1], 'c3': options[2]}, on_bbb_response)
+
+		socketIO.wait_for_callbacks(seconds=1)
+
+	start = time.time()
+	printResult(question, options)
+	end = time.time()
 	print(end - start)
 
 
@@ -487,14 +413,12 @@ def get_points_live():
 if __name__ == "__main__":
 	load_json()
 	while(1):
-		keypressed = raw_input('\nPress s to screenshot live game, sampq to run against sample questions or q to quit:\n')
+		keypressed = raw_input('\nPress s to screenshot live game, sq to run against sample questions or q to quit:\n')
 		if keypressed == 's':
 			get_points_live()
-		elif keypressed == 'sampq':
+		elif keypressed == 'sq':
 			get_points_sample()
 		elif keypressed == 'q':
 			break
 		else:
-			print(bcolors.FAIL + "\nUnknown input" + bcolors.ENDC)
-	
-
+			print("\nUnknown input")
