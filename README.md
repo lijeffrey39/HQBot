@@ -20,3 +20,4 @@ $ python3 answer_bot.py
 * google-nlp 
 * beautifulsoup4 
 
+Full stack can be view here: https://github.com/lijeffrey39/HQBotNode
